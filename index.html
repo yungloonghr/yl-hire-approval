@@ -8,7 +8,7 @@
 <!--
   ============================================================
   錄取簽呈線上簽核系統（初版）
-  流程：人資審核 → 面試主管 → 單位主管 → 部門主管 → 董事長/總經理 → 總管理處
+  流程：人資部初面 → 面試主管 → 單位主管 → 部門主管 → 董事長/總經理 → 總管理處
 
   部署前請完成以下設定：
 
@@ -440,8 +440,8 @@ const $ = id => document.getElementById(id);
 /* ============ 流程設定 ============ */
 const STAGE_ORDER = ["hr","interviewer","unitManager","deptManager","executive","generalAffairs","completed"];
 const SIGN_STAGES = STAGE_ORDER.slice(0,6);
-const STAGE_LABEL = {hr:"人資審核", interviewer:"面試主管", unitManager:"單位主管", deptManager:"部門主管", executive:"董事長/總經理", generalAffairs:"總管理處", completed:"已完成"};
-const STAGE_CHOP  = {hr:"人資\n已審核", interviewer:"面試主管\n已簽核", unitManager:"單位主管\n已簽核", deptManager:"部門主管\n已簽核", executive:"總經理\n已簽核", generalAffairs:"總管理處\n已簽核"};
+const STAGE_LABEL = {hr:"人資部初面", interviewer:"面試主管", unitManager:"單位主管", deptManager:"部門主管", executive:"董事長/總經理", generalAffairs:"總管理處", completed:"已完成"};
+const STAGE_CHOP  = {hr:"人資初面\n已簽核", interviewer:"面試主管\n已簽核", unitManager:"單位主管\n已簽核", deptManager:"部門主管\n已簽核", executive:"總經理\n已簽核", generalAffairs:"總管理處\n已簽核"};
 
 /* ============ 人資審核：選項 ============ */
 const COMM_OPTIONS = ["表達清楚流暢","尚可，需引導","表達不清、不易溝通"];
@@ -729,12 +729,13 @@ function buildFilesEditor(kind, p, required){
       <input type="file" id="${p}_${kind}_input" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="margin-top:6px;">
       <div style="margin-top:8px;display:flex;align-items:center;gap:10px;">
         <button class="btn-ghost" id="${p}_${kind}_btn" type="button">上傳</button>
-        <span class="muted" id="${p}_${kind}_status"></span>
+        <span class="muted" id="${p}_${kind}_status">選好檔案會自動上傳</span>
       </div>
     </div>`;
 }
 function wireFilesEditor(kind, p, id){
   $(`${p}_${kind}_btn`).onclick = ()=>uploadFiles(kind,p,id);
+  $(`${p}_${kind}_input`).addEventListener('change', ()=>{ if($(`${p}_${kind}_input`).files.length) uploadFiles(kind,p,id); });
   $(`${p}_${kind}_list`).addEventListener('click', e=>{
     const b = e.target.closest('[data-rm]'); if(!b) return;
     removeFile(kind, parseInt(b.dataset.i,10), p, id);
@@ -853,6 +854,11 @@ function renderAdminDashboard(){
         <div><label>應徵職務</label><input type="text" id="nPos"></div>
         <div><label>面談日期</label><input type="date" id="nDate"></div>
       </div>
+      <div id="createFiles" style="margin-top:16px;">
+        <div class="file-block"><label>應徵者履歷表（可多檔）</label><input type="file" id="newResume" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"></div>
+        <div class="file-block" style="margin-bottom:0;"><label>應徵資料暨個資同意書（可多檔）</label><input type="file" id="newConsent" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"></div>
+        <p class="muted" style="margin:8px 0 0;">選好檔案後按「建立並產生連結」，系統會在建立時一併上傳（單檔 20MB 內）。</p>
+      </div>
       <div style="margin-top:16px;display:flex;gap:10px;">
         <button class="btn-primary" id="createBtn">建立並產生連結</button>
         <button class="btn-ghost" id="cancelEditBtn" style="display:none;">取消編輯</button>
@@ -932,6 +938,7 @@ async function editRecord(id){
     $('nPos').value = d.position || "";      $('nDate').value = d.interviewDate || "";
     $('createBtn').textContent = "儲存修改"; $('createBtn').onclick = saveEditedRecord;
     $('cancelEditBtn').style.display = 'inline-block';
+    $('createFiles').style.display = 'none';
     $('editFilesSection').innerHTML = `<div class="divider"></div>` + buildFilesEditor('resume','adm',false) + buildFilesEditor('consent','adm',false);
     wireFilesEditor('resume','adm',id); wireFilesEditor('consent','adm',id);
     window.scrollTo({top:0, behavior:'smooth'});
@@ -952,12 +959,29 @@ async function saveEditedRecord(){
     toast("已儲存修改"); renderAdminDashboard();
   }catch(err){ console.error(err); toast("儲存失敗，請確認網路連線或 Firebase 設定"); btn.disabled = false; btn.textContent = "儲存修改"; }
 }
+async function uploadFileCore(kind, id, file, onPct){
+  const path = `${COL}/${id}/${kind}/${Date.now()}_${file.name}`;
+  const ref = storage.ref().child(path);
+  const task = ref.put(file);
+  task.on('state_changed', s=>onPct && onPct(Math.round((s.bytesTransferred/s.totalBytes)*100)));
+  await task;
+  const url = await ref.getDownloadURL();
+  const entry = {url, name:file.name, path, uploadedAt:Date.now()};
+  await db.collection(COL).doc(id).update({[FILE_KINDS[kind].field]: firebase.firestore.FieldValue.arrayUnion(entry), updatedAt: SERVER_TS()});
+  return entry;
+}
 async function createRecord(){
   const b = readBasics();
   if(!b.candidateName || !b.department || !b.position || !b.interviewDate){ toast("請完整填寫應徵者姓名、部門、職務與面談日期"); return; }
+  const queue = [];
+  [['resume','newResume'],['consent','newConsent']].forEach(([kind,elId])=>{
+    const el = $(elId); if(el) [...el.files].forEach(f=>queue.push({kind,file:f}));
+  });
+  if(queue.some(q=>q.file.size > 20*1024*1024)){ toast("單檔請小於 20MB"); return; }
   const btn = $('createBtn'); btn.disabled = true; btn.textContent = "建立中…";
+  let newId = null;
   try{
-    await db.collection(COL).add({
+    const ref = await db.collection(COL).add({
       ...b,
       status: 'hr',
       hrEval: emptyHrEval(),
@@ -968,9 +992,23 @@ async function createRecord(){
       hr: null, interviewer: null, unitManager: null, deptManager: null, executive: null, generalAffairs: null,
       createdAt: SERVER_TS(), updatedAt: SERVER_TS()
     });
-    toast("已建立，請將連結分享給人資審核人員");
+    newId = ref.id;
+    for(let i=0;i<queue.length;i++){
+      const q = queue[i];
+      await uploadFileCore(q.kind, newId, q.file, pct=>{ btn.textContent = `上傳附件 ${i+1}/${queue.length}（${pct}%）`; });
+    }
+    toast(queue.length ? "已建立並上傳附件，請將連結分享給人資初面人員" : "已建立，請將連結分享給人資初面人員");
     renderAdminDashboard();
-  }catch(err){ console.error(err); toast("建立失敗，請確認 Firebase 設定是否正確"); btn.disabled = false; btn.textContent = "建立並產生連結"; }
+  }catch(err){
+    console.error(err);
+    if(newId){
+      toast("簽呈已建立，但附件上傳失敗，請在列表按「編輯」補傳");
+      renderAdminDashboard();
+    } else {
+      toast("建立失敗，請確認 Firebase 設定是否正確");
+      btn.disabled = false; btn.textContent = "建立並產生連結";
+    }
+  }
 }
 async function deleteRecord(id, name){
   if(!confirm(`確定要刪除「${name}」這筆簽呈嗎？此動作無法復原。`)) return;
