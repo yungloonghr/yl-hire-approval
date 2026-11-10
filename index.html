@@ -1,0 +1,1622 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>錄取簽呈表 | 永隆工程</title>
+
+<!--
+  ============================================================
+  錄取簽呈線上簽核系統（初版）
+  流程：人資審核 → 面試主管 → 單位主管 → 部門主管 → 董事長/總經理 → 總管理處
+
+  部署前請完成以下設定：
+
+  1. Firebase：獨立專案 yl-hire-approval。
+     使用集合 hireApprovals 與 salaryItems（薪資項目，本專案自有一份）。
+
+  2. Firestore 安全規則（Firebase Console → Firestore → 規則），請「新增」hireApprovals 這一段：
+     rules_version = '2';
+     service cloud.firestore {
+       match /databases/{database}/documents {
+         match /interviews/{docId}      { allow read, write: if true; }
+         match /salaryItems/{itemId}    { allow read, write: if true; }
+         match /hireApprovals/{docId}   { allow read, write: if true; }
+       }
+     }
+
+  2-1. Storage 安全規則（Firebase Console → Storage → 規則），請「新增」hireApprovals 這一段：
+     rules_version = '2';
+     service firebase.storage {
+       match /b/{bucket}/o {
+         match /resumes/{docId}/{fileName} { allow read, write: if true; }
+         match /hireApprovals/{docId}/{kind}/{fileName} { allow read, write: if true; }
+       }
+     }
+     ※ 個資同意書屬敏感資料，正式上線前建議改為需登入才可讀取。
+
+  3. 管理後台密碼：搜尋 ADMIN_PASSCODE 修改。
+
+  4. 部署：上傳到 GitHub Pages 或 Firebase Hosting，檔名 index.html。
+  ============================================================
+-->
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+
+  :root{
+    --ink:#1B2A41;
+    --ink-soft:#4A5A70;
+    --paper:#F7F5F0;
+    --paper-raised:#FFFFFF;
+    --line:#DAD4C4;
+    --brass:#A6803D;
+    --brass-deep:#8A6A2E;
+    --seal:#B3492B;
+    --good:#4C7A5E;
+    --good-bg:#EAF1EC;
+    --shadow: 0 1px 2px rgba(27,42,65,0.06), 0 6px 16px rgba(27,42,65,0.06);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Noto Sans TC', system-ui, sans-serif;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,.serif{font-family:'Noto Serif TC', serif;}
+
+  a{color:var(--brass-deep);}
+
+  .letterhead{
+    background:var(--ink);
+    color:#F1EEE4;
+    padding:22px clamp(16px,4vw,40px);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+  }
+  .letterhead .org{
+    font-size:13px;
+    letter-spacing:.08em;
+    color:#C9BFA1;
+  }
+  .letterhead h1{
+    margin:2px 0 0;
+    font-size:clamp(20px,3vw,26px);
+    font-weight:700;
+    letter-spacing:.04em;
+  }
+  .letterhead .nav a{
+    color:#E7E1CE;
+    text-decoration:none;
+    font-size:13px;
+    border:1px solid #4A5A70;
+    padding:7px 14px;
+    border-radius:999px;
+  }
+  .letterhead .nav a:hover{border-color:var(--brass);color:#fff;}
+
+  .wrap{
+    max-width:900px;
+    margin:0 auto;
+    padding:clamp(16px,4vw,36px);
+  }
+
+  .card{
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:10px;
+    box-shadow:var(--shadow);
+    padding:clamp(18px,4vw,30px);
+    margin-bottom:20px;
+  }
+
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media (max-width:560px){.field-row{grid-template-columns:1fr;}}
+  label{display:block;font-size:13px;color:var(--ink-soft);margin-bottom:6px;font-weight:600;}
+  input[type=text],input[type=date],input[type=password],input[type=number],textarea{
+    width:100%;
+    border:1px solid var(--line);
+    background:#fff;
+    border-radius:7px;
+    padding:10px 12px;
+    font-size:15px;
+    font-family:inherit;
+    color:var(--ink);
+  }
+  input:focus,textarea:focus{outline:2px solid var(--brass);outline-offset:1px;border-color:var(--brass);}
+  textarea{resize:vertical;min-height:80px;}
+
+  button{
+    font-family:inherit;
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+    border-radius:8px;
+    border:1px solid transparent;
+    padding:11px 20px;
+    transition:transform .05s ease;
+  }
+  button:active{transform:translateY(1px);}
+  .btn-primary{background:var(--brass);color:#fff;}
+  .btn-primary:hover{background:var(--brass-deep);}
+  .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--ink);}
+  .btn-ghost:hover{border-color:var(--brass);}
+  .btn-danger{background:transparent;border:1px solid var(--seal);color:var(--seal);}
+  button:disabled{opacity:.45;cursor:not-allowed;}
+
+  /* ---- Stepper ---- */
+  .stepper{display:flex;gap:0;margin-bottom:24px;}
+  .step{
+    flex:1;text-align:center;padding:12px 6px;position:relative;
+    font-size:13px;font-weight:600;color:var(--ink-soft);
+    border-bottom:3px solid var(--line);
+  }
+  .step.done{color:var(--good);border-bottom-color:var(--good);}
+  .step.active{color:var(--brass-deep);border-bottom-color:var(--brass);}
+  .step .sub{display:block;font-weight:400;font-size:11px;margin-top:2px;color:inherit;opacity:.8;}
+
+  /* ---- Category evaluation ---- */
+  .cat-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media (max-width:640px){.cat-grid{grid-template-columns:1fr;}}
+  .cat{
+    border:1px solid var(--line);
+    border-radius:9px;
+    padding:14px 16px;
+    background:#FCFBF8;
+  }
+  .cat .cat-title{
+    font-weight:700;font-size:14px;margin-bottom:10px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .cat .cat-num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:20px;height:20px;border-radius:50%;
+    background:var(--ink);color:#F1EEE4;font-size:11px;flex:none;
+  }
+  .opt-list{display:flex;flex-direction:column;gap:7px;}
+  .opt{
+    display:flex;align-items:flex-start;gap:8px;
+    font-size:13.5px;color:var(--ink);
+    padding:7px 9px;border-radius:6px;border:1px solid transparent;
+    cursor:pointer;
+  }
+  .opt:hover{background:#F1ECDD;}
+  .opt.selected{background:var(--good-bg);border-color:var(--good);color:#1E3A2A;font-weight:600;}
+  .opt input{margin-top:3px;accent-color:var(--brass);}
+  .cat .note-field{margin-top:8px;}
+  .cat .note-field input{font-size:13px;padding:7px 10px;}
+
+  .cat.readonly{background:#F4F2EC;}
+  .cat.readonly .opt{cursor:default;padding:5px 0;}
+  .cat.readonly .opt:hover{background:none;}
+  .cat.readonly .opt.selected{background:none;border:none;padding-left:0;}
+  .cat.readonly .opt:not(.selected){display:none;}
+  .cat.readonly .opt.selected::before{content:"✓ ";color:var(--good);}
+
+  .unanswered{color:var(--seal);font-size:12px;font-weight:600;}
+  .req-mark{color:var(--seal);font-weight:700;margin-left:2px;}
+  .comment-label{font-size:15px;font-weight:700;color:var(--ink);margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+  .comment-box{
+    white-space:pre-wrap;
+    background:#FCF8ED;
+    border:1px solid var(--brass);
+    border-left:4px solid var(--brass);
+    border-radius:8px;
+    padding:14px 16px;
+    font-size:15.5px;
+    line-height:1.75;
+    color:var(--ink);
+    min-height:50px;
+    box-shadow:0 1px 3px rgba(166,128,61,0.12);
+  }
+
+  /* ---- Salary ---- */
+  .salary-block{display:flex;flex-direction:column;gap:14px;}
+  .salary-fixed{display:flex;flex-direction:column;gap:8px;}
+  .salary-row{display:flex;justify-content:space-between;align-items:center;font-size:14px;gap:12px;}
+  .salary-row label{margin:0;font-weight:600;color:var(--ink);font-size:14px;}
+  .salary-row input[type=number]{max-width:160px;}
+  .sal-fixed-amt{font-weight:600;color:var(--ink-soft);font-size:13.5px;white-space:nowrap;}
+  .salary-variable label{display:block;font-size:13px;color:var(--ink-soft);margin-bottom:8px;font-weight:600;}
+  .sal-item-list{display:flex;flex-direction:column;gap:8px;}
+  .sal-item{display:flex;align-items:center;gap:10px;font-size:13.5px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:#FCFBF8;cursor:pointer;}
+  .sal-item input[type=checkbox]{accent-color:var(--brass);flex:none;}
+  .sal-item span:first-of-type{flex:1;}
+  .sal-amt{max-width:120px;margin-left:auto;}
+  .salary-total{border-top:1px solid var(--line);padding-top:10px;font-size:15px;font-weight:700;text-align:right;}
+  .salary-total b{color:var(--brass-deep);}
+
+  /* ---- Salary: per-record custom items + remove button ---- */
+  .sal-item-custom{gap:8px;}
+  .sal-custom-label{flex:1;min-width:0;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:13.5px;font-family:inherit;color:var(--ink);background:#fff;margin-left:0;}
+  .sal-item-custom .sal-amt{margin-left:0;}
+  .sal-remove-btn{border:none;background:none;color:var(--seal);font-size:17px;line-height:1;cursor:pointer;padding:2px 6px;flex:none;}
+  .sal-remove-btn:hover{opacity:.6;}
+  .sal-add-row{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;}
+  .sal-add-row input[type=text]{flex:1;min-width:140px;}
+  .sal-add-row input[type=number]{max-width:180px;}
+
+  /* ---- Salary item admin (後台自訂項目管理) ---- */
+  .salary-item-admin-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:7px;background:#FCFBF8;font-size:13.5px;}
+  .salary-item-admin-row .item-name{flex:1;font-weight:600;}
+
+  /* ---- Signature pad ---- */
+  .sig-box{
+    border:1.5px dashed var(--line);
+    border-radius:9px;
+    background:#fff;
+    touch-action:none;
+    width:100%;
+    height:160px;
+    display:block;
+    cursor:crosshair;
+  }
+  .sig-tools{display:flex;justify-content:space-between;align-items:center;margin-top:8px;}
+  .sig-hint{font-size:12px;color:var(--ink-soft);}
+
+  /* ---- Chop / stamp ---- */
+  .signed-block{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+  .signed-block img{height:70px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:4px;}
+  .chop{
+    width:64px;height:64px;border-radius:50%;
+    border:2.5px solid var(--seal);color:var(--seal);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Noto Serif TC',serif;font-weight:700;font-size:13px;
+    transform:rotate(-11deg);
+    flex:none;
+    text-align:center;line-height:1.2;
+    opacity:.9;
+  }
+  .signed-meta{font-size:12.5px;color:var(--ink-soft);}
+  .signed-meta b{color:var(--ink);}
+
+  .status-pill{
+    display:inline-block;font-size:12px;font-weight:700;
+    padding:4px 11px;border-radius:999px;
+  }
+  .status-pill.wait{background:#F1ECDD;color:var(--brass-deep);}
+  .status-pill.done{background:var(--good-bg);color:var(--good);}
+
+  .muted{color:var(--ink-soft);font-size:13px;}
+  .divider{height:1px;background:var(--line);margin:20px 0;}
+
+  table.admin-table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  table.admin-table th,table.admin-table td{
+    text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);
+    vertical-align:top;
+  }
+  table.admin-table th{color:var(--ink-soft);font-weight:600;font-size:12px;}
+  .link-copy{
+    display:inline-flex;align-items:center;gap:6px;font-size:12px;
+    background:#F1ECDD;padding:5px 10px;border-radius:6px;cursor:pointer;border:none;
+    color:var(--brass-deep);font-weight:600;
+  }
+
+  #toast{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--ink);color:#F1EEE4;padding:10px 18px;border-radius:8px;
+    font-size:13px;opacity:0;pointer-events:none;transition:opacity .25s ease;z-index:99;
+  }
+  #toast.show{opacity:1;}
+
+  
+
+  /* ---- 新增：stepper 六關 ---- */
+  .stepper{overflow-x:auto;}
+  .step{min-width:74px;font-size:12.5px;}
+
+  /* ---- select ---- */
+  select{
+    width:100%;border:1px solid var(--line);background:#fff;border-radius:7px;
+    padding:9px 10px;font-size:14px;font-family:inherit;color:var(--ink);
+  }
+  select:focus{outline:2px solid var(--brass);outline-offset:1px;border-color:var(--brass);}
+
+  /* ---- HR 審核 ---- */
+  .q{margin-bottom:18px;}
+  .q > .q-title{font-weight:700;font-size:14px;margin-bottom:8px;}
+  .opt-row{display:flex;flex-wrap:wrap;gap:8px;}
+  .opt-row .opt{border:1px solid var(--line);background:#FCFBF8;padding:8px 14px;}
+  .opt-row .opt.selected{border-color:var(--good);}
+  .sub-card{border:1px solid var(--line);border-radius:9px;background:#FCFBF8;padding:16px;}
+  .tag{display:inline-block;font-size:12px;padding:2px 9px;border-radius:999px;background:#F1ECDD;color:var(--brass-deep);font-weight:600;margin-right:6px;}
+  .tag.ok{background:var(--good-bg);color:var(--good);}
+  .tag.bad{background:#F7E4DE;color:var(--seal);}
+
+  /* ---- 檔案上傳 ---- */
+  .file-block{margin-bottom:18px;}
+  .file-item{display:flex;align-items:center;gap:8px;font-size:13.5px;padding:6px 0;}
+  .file-item a{flex:1;word-break:break-all;}
+
+  /* ---- 評分表 ---- */
+  .score-head,.score-row{display:grid;grid-template-columns:minmax(0,1.2fr) 150px minmax(0,1.5fr) 28px;gap:8px;align-items:center;}
+  .score-head{font-size:12px;color:var(--ink-soft);font-weight:600;margin-bottom:6px;}
+  .score-row{margin-bottom:8px;}
+  .score-row .sn{font-weight:600;font-size:14px;}
+  .score-row input[type=text]{padding:8px 10px;font-size:14px;}
+  .score-row .rm-slot{width:28px;}
+  @media (max-width:640px){
+    .score-head{display:none;}
+    .score-row{grid-template-columns:minmax(0,1fr) 130px 28px;padding-bottom:10px;border-bottom:1px dashed var(--line);}
+    .score-row .note{grid-column:1/-1;grid-row:2;}
+    .score-row .sal-remove-btn{grid-column:3;grid-row:1;}
+  }
+  .sec-title{font-family:'Noto Serif TC',serif;font-weight:700;font-size:15px;margin:4px 0 12px;display:flex;align-items:baseline;gap:8px;}
+  .sec-title small{font-family:'Noto Sans TC',sans-serif;font-weight:400;font-size:12px;color:var(--ink-soft);}
+  .avg-line{display:flex;justify-content:space-between;font-size:13.5px;padding:8px 10px;background:#F4F2EC;border-radius:7px;margin-top:4px;}
+  .total-box{
+    margin-top:18px;border:1.5px solid var(--brass);border-radius:10px;background:#FCF8ED;padding:14px 18px;
+  }
+  .total-box .row{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;}
+  .total-box .grand{font-size:18px;font-weight:700;border-top:1px solid var(--line);margin-top:6px;padding-top:8px;}
+  .band{display:inline-block;margin-top:8px;font-size:13px;font-weight:700;padding:4px 12px;border-radius:999px;}
+  .band.b-strong{background:var(--good-bg);color:var(--good);}
+  .band.b-ok{background:#E8F0EA;color:var(--good);}
+  .band.b-cond{background:#F6EBCB;color:var(--brass-deep);}
+  .band.b-no{background:#F7E4DE;color:var(--seal);}
+  details.rubric{margin-top:16px;border:1px solid var(--line);border-radius:8px;padding:10px 14px;background:#FCFBF8;}
+  details.rubric summary{cursor:pointer;font-weight:600;font-size:13.5px;}
+  table.ro-table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  table.ro-table th,table.ro-table td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top;}
+  table.ro-table th{font-size:12px;color:var(--ink-soft);font-weight:600;}
+  table.ro-table td.sc{white-space:nowrap;font-weight:700;}
+
+  /* ---- Print layout ---- */
+  @page{ size: A4; margin: 0; }
+  #printArea{
+    display:none;width:210mm;box-sizing:border-box;padding:11mm;
+    font-family:'Noto Sans TC',sans-serif;color:#000;
+  }
+  .p-title{text-align:center;font-size:17px;font-weight:700;margin-bottom:1mm;font-family:'Noto Serif TC',serif;}
+  .p-sub{text-align:center;font-size:10.5px;margin-bottom:3mm;color:#333;}
+  .p-info{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:10.5px;border:1px solid #000;padding:4px 8px;}
+  .p-box{border:1px solid #000;border-top:none;padding:4px 8px;font-size:10px;}
+  .p-box .p-h{font-weight:700;font-size:10.5px;margin-bottom:2px;}
+  .p-table{width:100%;border-collapse:collapse;font-size:9.5px;}
+  .p-table th,.p-table td{border:1px solid #000;padding:2px 5px;text-align:left;}
+  .p-table th{background:#eee;}
+  .p-table td.c{text-align:center;}
+  .p-sign-row{display:grid;grid-template-columns:repeat(6,1fr);border:1px solid #000;border-top:none;}
+  .p-sign-cell{border-right:1px solid #000;padding:3px 5px;font-size:9px;min-height:19mm;}
+  .p-sign-cell:last-child{border-right:none;}
+  .p-sign-cell img{max-height:12mm;max-width:100%;display:block;margin-top:2px;}
+  @media print{
+    body *{visibility:hidden;}
+    #printArea,#printArea *{visibility:visible;}
+    #printArea{position:absolute;left:0;top:0;display:block;}
+  }
+</style>
+</head>
+<body>
+
+<div class="letterhead">
+  <div>
+    <div class="org">永隆工程 · 人力資源</div>
+    <h1>錄取簽呈表</h1>
+  </div>
+  <div class="nav"><a href="#" id="navHome">管理後台</a></div>
+</div>
+
+<div class="wrap" id="app">
+  <div class="muted">載入中…</div>
+</div>
+
+<div id="toast"></div>
+<div id="printArea"></div>
+
+<script>
+/* ============ Firebase 設定（yl-hire-approval 專案） ============ */
+const firebaseConfig = {
+  apiKey: "AIzaSyAWLwKiYaCG_CVceBCQKA_Ob7UZsaf7fCo",
+  authDomain: "yl-hire-approval.firebaseapp.com",
+  projectId: "yl-hire-approval",
+  storageBucket: "yl-hire-approval.firebasestorage.app",
+  messagingSenderId: "571662559363",
+  appId: "1:571662559363:web:c7e626aeafd4bcf579d3b6"
+};
+let db = null, storage = null;
+try{
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  storage = firebase.storage();
+}catch(err){ console.error("Firebase 初始化失敗：", err); }
+
+const ADMIN_PASSCODE = "yl-hr-2026"; // 請自行修改
+const COL = "hireApprovals";
+const $ = id => document.getElementById(id);
+
+/* ============ 流程設定 ============ */
+const STAGE_ORDER = ["hr","interviewer","unitManager","deptManager","executive","generalAffairs","completed"];
+const SIGN_STAGES = STAGE_ORDER.slice(0,6);
+const STAGE_LABEL = {hr:"人資審核", interviewer:"面試主管", unitManager:"單位主管", deptManager:"部門主管", executive:"董事長/總經理", generalAffairs:"總管理處", completed:"已完成"};
+const STAGE_CHOP  = {hr:"人資\n已審核", interviewer:"面試主管\n已簽核", unitManager:"單位主管\n已簽核", deptManager:"部門主管\n已簽核", executive:"總經理\n已簽核", generalAffairs:"總管理處\n已簽核"};
+
+/* ============ 人資審核：選項 ============ */
+const COMM_OPTIONS = ["表達清楚流暢","尚可，需引導","表達不清、不易溝通"];
+const ATT_OPTIONS  = ["積極主動","普通","消極被動"];
+const CONTACT_METHODS = ["電訪","初面"];
+
+/* ============ 評分表設定（依附件五） ============ */
+const DEFAULT_SKILLS = ["電腦操作熟悉度","GOOGLE地圖應用",""];   // 第 3 項由用人主管自訂
+const COMPETENCIES   = ["問題解決能力","團隊協作","跨部門協調能力"];
+const MAX_SKILLS = 6;
+const SCORE_VALUES = [5,4.5,4,3.5,3,2.5,2,1.5,1];
+const SCORE_NAME = {5:"明確超出期望",4:"符合期望",3:"尚可但有疑慮",2:"明顯不足",1:"嚴重不符"};
+const W_SKILL = 0.6, W_COMP = 0.4;
+const RUBRIC = [
+  [5,"明確超出期望","候選人的回答展現超出該職位層級的深度與主動性。能舉出多個具體事例，清楚描述自身角色與決策過程；展現系統性思維與反思能力；在情境題中提出結構化且可執行的方案。"],
+  [4,"符合期望","候選人具備此項能力的基本水準。能舉出具體事例，分析方向正確；展現一定的自我覺察；在情境題中提出合理的應對方式，但深度或主動性有提升空間。"],
+  [3,"尚可但有疑慮","候選人的回答顯示基本理解，但舉例模糊或偏概念性；缺乏具體行為描述；對自身角色的描述偏被動；在情境題中的方案缺少細節。需透過其他方式（二面、資歷查核）進一步確認。"],
+  [2,"明顯不足","候選人無法舉出具體事例，或回答中顯示與期望明顯不符的行為模式。構成該屬性上的錄用風險。"],
+  [1,"嚴重不符","候選人的回答顯示完全缺乏此項能力，或展現明確的負面行為信號。該屬性構成明確的淘汰理由。"]
+];
+const HIRE_OPTIONS = ["錄用","候補","不錄用"];
+
+function scoreOptionsHTML(sel){
+  const o = [`<option value="">請選擇</option>`];
+  SCORE_VALUES.forEach(v=>{
+    const label = Number.isInteger(v) ? `${v.toFixed(1)}　${SCORE_NAME[v]}` : v.toFixed(1);
+    o.push(`<option value="${v}" ${(sel!==null && sel!==undefined && sel!=='' && Number(sel)===v)?'selected':''}>${label}</option>`);
+  });
+  return o.join("");
+}
+function avgOf(rows){
+  const a = rows.filter(r=>r.score!==null && r.score!=='' && r.score!==undefined).map(r=>Number(r.score));
+  return a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
+}
+function activeSkills(scores){ return (scores.skills||[]).filter(r=>(r.name||'').trim()); }
+function calcWeighted(scores){
+  if(!scores) return {s:null,c:null,total:null};
+  const sk = activeSkills(scores);
+  const s = sk.length && sk.every(r=>r.score!=null && r.score!=='') ? avgOf(sk) : null;
+  const co = scores.competencies||[];
+  const c = co.length && co.every(r=>r.score!=null && r.score!=='') ? avgOf(co) : null;
+  if(s===null || c===null) return {s,c,total:null};
+  return {s,c,total: Math.round((s*W_SKILL + c*W_COMP)*100)/100};
+}
+function bandOf(t){
+  if(t===null) return null;
+  if(t>=4)   return {text:"強烈建議錄用", cls:"b-strong"};
+  if(t>=3.5) return {text:"建議錄用，可進一步確認疑慮項目", cls:"b-ok"};
+  if(t>=3)   return {text:"有條件錄用，需主管明確說明接受理由", cls:"b-cond"};
+  return {text:"明確不錄用", cls:"b-no"};
+}
+const f2 = n => (n===null||n===undefined) ? "—" : (Math.round(n*100)/100).toFixed(2);
+
+function emptyScores(){
+  return {
+    skills: DEFAULT_SKILLS.map(n=>({name:n,score:null,note:""})),
+    competencies: COMPETENCIES.map(n=>({name:n,score:null,note:""}))
+  };
+}
+function emptyHrEval(){
+  return {contacted:null, methods:[], date:"", communication:null, attitude:null, experience:null, note:""};
+}
+
+/* ============ 薪資結構（沿用舊系統） ============ */
+const MEAL_ALLOWANCE = 3000;
+const SALARY_VARIABLE = [
+  {key:"projectAllowance", label:"專案津貼", amount:null},
+  {key:"qualityLicense",   label:"專案品管證照津貼", amount:2000},
+  {key:"safetyLicense",    label:"專案職安證照津貼", amount:3000},
+  {key:"stationed",        label:"駐地津貼", amount:15000},
+  {key:"transport3000",    label:"交通津貼（3,000）", amount:3000},
+  {key:"transport6000",    label:"交通津貼（6,000）", amount:6000},
+];
+function emptySalary(){
+  const items = {};
+  SALARY_VARIABLE.forEach(v => items[v.key] = {checked:false, amount:v.amount});
+  return {baseSalary: null, items, customItems: [], commitment: ""};
+}
+let DYNAMIC_SALARY_ITEMS = [];
+async function loadDynamicSalaryItems(){
+  try{
+    const snap = await db.collection('salaryItems').orderBy('order','asc').get();
+    DYNAMIC_SALARY_ITEMS = snap.docs.map(d=>{
+      const v = d.data();
+      return {key:d.id, label:v.label, amount:(v.amount!=null ? v.amount : null)};
+    });
+  }catch(err){ console.error('讀取薪資項目設定失敗：', err); DYNAMIC_SALARY_ITEMS = []; }
+  return DYNAMIC_SALARY_ITEMS;
+}
+function allSalaryDefs(){ return SALARY_VARIABLE.concat(DYNAMIC_SALARY_ITEMS); }
+function calcSalaryTotal(sal){
+  if(!sal) return 0;
+  let t = (Number(sal.baseSalary)||0) + MEAL_ALLOWANCE;
+  allSalaryDefs().forEach(v=>{
+    const it = sal.items && sal.items[v.key];
+    if(it && it.checked) t += (Number(it.amount)||0);
+  });
+  (sal.customItems||[]).forEach(it=>{ if(it.checked) t += (Number(it.amount)||0); });
+  return t;
+}
+function fmtMoney(n){ return "NT$ " + (Number(n)||0).toLocaleString('zh-TW'); }
+
+function buildSalaryEditor(sal, prefix, required){
+  sal = sal || emptySalary();
+  const mark = required ? `<span class="req-mark">*</span>` : ``;
+  const rows = allSalaryDefs().map(v=>{
+    const it = (sal.items && sal.items[v.key]) || {checked:false, amount:v.amount};
+    const isCustom = v.amount === null;
+    return `
+      <label class="sal-item">
+        <input type="checkbox" id="${prefix}_chk_${v.key}" ${it.checked?'checked':''}>
+        <span>${esc(v.label)}</span>
+        ${isCustom
+          ? `<input type="number" class="sal-amt" id="${prefix}_amt_${v.key}" placeholder="金額" value="${it.amount!=null?it.amount:''}">`
+          : `<span class="sal-fixed-amt">NT$ ${Number(v.amount).toLocaleString('zh-TW')}</span>`}
+      </label>`;
+  }).join("");
+  const customItems = sal.customItems || [];
+  const customRows = customItems.map(it=>`
+    <label class="sal-item sal-item-custom">
+      <input type="checkbox" class="sal-custom-chk" ${it.checked?'checked':''}>
+      <input type="text" class="sal-custom-label" placeholder="項目名稱" value="${esc(it.label||'')}">
+      <input type="number" class="sal-amt sal-custom-amt" placeholder="金額" value="${it.amount!=null?it.amount:''}">
+      <button type="button" class="sal-remove-btn" title="刪除此項目">✕</button>
+    </label>`).join("");
+  return `
+    <div class="salary-block" id="${prefix}_block">
+      <div class="salary-fixed">
+        <div class="salary-row"><label for="${prefix}_base">本薪${mark}</label><input type="number" id="${prefix}_base" placeholder="請輸入本薪" value="${sal.baseSalary!=null?sal.baseSalary:''}"></div>
+        <div class="salary-row"><span>伙食費</span><span class="sal-fixed-amt">NT$ ${MEAL_ALLOWANCE.toLocaleString('zh-TW')}（固定）</span></div>
+      </div>
+      <div class="salary-variable">
+        <label>變動項目（勾選適用項目）</label>
+        <div class="sal-item-list" id="${prefix}_item_list">${rows}</div>
+        <div class="sal-item-list" id="${prefix}_custom_list" style="${customRows?'margin-top:8px;':''}">${customRows}</div>
+        <button type="button" class="btn-ghost" id="${prefix}_addCustomBtn" style="margin-top:10px;padding:7px 14px;font-size:12.5px;">＋ 新增這筆的專屬項目</button>
+      </div>
+      <div class="salary-variable">
+        <label for="${prefix}_commitment">薪資承諾${mark}（例如：年薪保障14個月；若無請填「無」）</label>
+        <textarea id="${prefix}_commitment" placeholder="例如：年薪保障14個月；若無請填「無」">${esc(sal.commitment||"")}</textarea>
+      </div>
+      <div class="salary-total">核薪合計：<b id="${prefix}_total">${fmtMoney(calcSalaryTotal(sal))}</b></div>
+    </div>`;
+}
+function wireSalaryEditor(prefix){
+  const block = $(`${prefix}_block`);
+  if(!block) return;
+  const recalc = ()=>{
+    const t = $(`${prefix}_total`);
+    if(t) t.textContent = fmtMoney(calcSalaryTotal(readSalaryFromForm(prefix)));
+  };
+  block.addEventListener('input', recalc);
+  block.addEventListener('change', recalc);
+  const addBtn = $(`${prefix}_addCustomBtn`);
+  if(addBtn){
+    addBtn.onclick = ()=>{
+      const list = $(`${prefix}_custom_list`);
+      list.style.marginTop = '8px';
+      const row = document.createElement('label');
+      row.className = 'sal-item sal-item-custom';
+      row.innerHTML = `
+        <input type="checkbox" class="sal-custom-chk" checked>
+        <input type="text" class="sal-custom-label" placeholder="項目名稱">
+        <input type="number" class="sal-amt sal-custom-amt" placeholder="金額">
+        <button type="button" class="sal-remove-btn" title="刪除此項目">✕</button>`;
+      list.appendChild(row);
+      const li = row.querySelector('.sal-custom-label'); if(li) li.focus();
+      recalc();
+    };
+  }
+  block.addEventListener('click', e=>{
+    const btn = e.target.closest('.sal-remove-btn');
+    if(btn){ const row = btn.closest('.sal-item-custom'); if(row) row.remove(); recalc(); }
+  });
+}
+function readSalaryFromForm(prefix){
+  const baseEl = $(`${prefix}_base`);
+  const base = baseEl ? baseEl.value : '';
+  const items = {};
+  allSalaryDefs().forEach(v=>{
+    const chk = $(`${prefix}_chk_${v.key}`);
+    let amount = v.amount;
+    if(v.amount === null){
+      const amtEl = $(`${prefix}_amt_${v.key}`);
+      amount = amtEl && amtEl.value !== '' ? Number(amtEl.value) : null;
+    }
+    items[v.key] = {checked: chk ? chk.checked : false, amount};
+  });
+  const customItems = [];
+  const customList = $(`${prefix}_custom_list`);
+  if(customList){
+    customList.querySelectorAll('.sal-item-custom').forEach(row=>{
+      const chk = row.querySelector('.sal-custom-chk');
+      const label = (row.querySelector('.sal-custom-label')||{value:''}).value.trim();
+      const a = row.querySelector('.sal-custom-amt');
+      const amtVal = a && a.value !== '' ? Number(a.value) : null;
+      if(label || amtVal !== null) customItems.push({label, amount: amtVal, checked: chk ? chk.checked : false});
+    });
+  }
+  const commitEl = $(`${prefix}_commitment`);
+  return {baseSalary: base !== '' ? Number(base) : null, items, customItems, commitment: commitEl ? commitEl.value.trim() : ''};
+}
+function buildSalaryReadonly(sal){
+  sal = sal || emptySalary();
+  const checkedItems = allSalaryDefs().filter(v => sal.items && sal.items[v.key] && sal.items[v.key].checked);
+  let rowsHTML = checkedItems.map(v=>{
+    const amt = sal.items[v.key].amount;
+    return `<div class="salary-row"><span>${esc(v.label)}</span><span class="sal-fixed-amt">NT$ ${(Number(amt)||0).toLocaleString('zh-TW')}</span></div>`;
+  }).join("");
+  const checkedCustom = (sal.customItems||[]).filter(it => it.checked && (it.label || it.amount));
+  rowsHTML += checkedCustom.map(it=>`<div class="salary-row"><span>${esc(it.label||'（未命名項目）')}</span><span class="sal-fixed-amt">NT$ ${(Number(it.amount)||0).toLocaleString('zh-TW')}</span></div>`).join("");
+  if(!rowsHTML) rowsHTML = `<p class="muted" style="margin:4px 0;">（無勾選變動項目）</p>`;
+  return `
+    <div class="salary-block">
+      <div class="salary-fixed">
+        <div class="salary-row"><span>本薪</span><span class="sal-fixed-amt">${sal.baseSalary!=null? 'NT$ '+Number(sal.baseSalary).toLocaleString('zh-TW') : '<span class="unanswered">未填寫</span>'}</span></div>
+        <div class="salary-row"><span>伙食費</span><span class="sal-fixed-amt">NT$ ${MEAL_ALLOWANCE.toLocaleString('zh-TW')}（固定）</span></div>
+      </div>
+      <div class="salary-variable">${rowsHTML}</div>
+      ${sal.commitment ? `<div class="salary-variable"><label>薪資承諾</label><div style="white-space:pre-wrap;background:#F4F2EC;border-radius:7px;padding:10px 12px;font-size:13.5px;">${esc(sal.commitment)}</div></div>` : ``}
+      <div class="salary-total">核薪合計：<b>${fmtMoney(calcSalaryTotal(sal))}</b></div>
+    </div>`;
+}
+
+/* ============ 小工具 ============ */
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(window.__toastT);
+  window.__toastT = setTimeout(()=>t.classList.remove('show'), 2400);
+}
+function fmtDate(ts){
+  if(!ts) return "";
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+function esc(s){
+  return (s===null||s===undefined?"":s).toString().replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+const SERVER_TS = ()=>firebase.firestore.FieldValue.serverTimestamp();
+
+/* 單選／複選的 .selected 外觀即時更新 */
+document.addEventListener('change', e=>{
+  const t = e.target;
+  if(!(t && (t.type==='radio' || t.type==='checkbox'))) return;
+  const wrap = t.closest('.opt'); if(!wrap) return;
+  if(t.type==='radio'){
+    document.querySelectorAll(`input[type=radio][name="${t.name}"]`).forEach(r=>{
+      const w = r.closest('.opt'); if(w) w.classList.toggle('selected', r.checked);
+    });
+  } else wrap.classList.toggle('selected', t.checked);
+});
+
+function radioGroup(name, options, selected){
+  // options: [{v,l}]
+  return `<div class="opt-row">` + options.map(o=>`
+    <label class="opt ${String(selected)===String(o.v)?'selected':''}">
+      <input type="radio" name="${name}" value="${esc(o.v)}" ${String(selected)===String(o.v)?'checked':''}>
+      <span>${esc(o.l)}</span>
+    </label>`).join("") + `</div>`;
+}
+
+/* ============ 檔案上傳（履歷表／應徵資料暨個資同意書，可多檔） ============ */
+const FILE_KINDS = {
+  resume:  {field:"resumeFiles",  label:"應徵者履歷表"},
+  consent: {field:"consentFiles", label:"應徵資料暨個資同意書"}
+};
+let fileState = {resume:[], consent:[]};   // 目前畫面上的檔案清單
+let currentDoc = null;                     // 目前表單的最新資料
+
+function fileListHTML(kind, editable){
+  const files = fileState[kind] || [];
+  if(!files.length) return `<p class="muted" style="margin:4px 0;">尚未上傳</p>`;
+  return files.map((f,i)=>`
+    <div class="file-item">
+      <a href="${esc(f.url)}" target="_blank" rel="noopener">📄 ${esc(f.name)}</a>
+      ${editable ? `<button type="button" class="sal-remove-btn" data-rm="${kind}" data-i="${i}" title="移除">✕</button>` : ``}
+    </div>`).join("");
+}
+function buildFilesEditor(kind, p, required){
+  const k = FILE_KINDS[kind];
+  return `
+    <div class="file-block">
+      <label>${k.label}${required?'<span class="req-mark">*</span>':''}</label>
+      <div id="${p}_${kind}_list">${fileListHTML(kind,true)}</div>
+      <input type="file" id="${p}_${kind}_input" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="margin-top:6px;">
+      <div style="margin-top:8px;display:flex;align-items:center;gap:10px;">
+        <button class="btn-ghost" id="${p}_${kind}_btn" type="button">上傳</button>
+        <span class="muted" id="${p}_${kind}_status"></span>
+      </div>
+    </div>`;
+}
+function wireFilesEditor(kind, p, id){
+  $(`${p}_${kind}_btn`).onclick = ()=>uploadFiles(kind,p,id);
+  $(`${p}_${kind}_list`).addEventListener('click', e=>{
+    const b = e.target.closest('[data-rm]'); if(!b) return;
+    removeFile(kind, parseInt(b.dataset.i,10), p, id);
+  });
+}
+function refreshFileList(kind,p){ const el = $(`${p}_${kind}_list`); if(el) el.innerHTML = fileListHTML(kind,true); }
+
+async function uploadFiles(kind,p,id){
+  const k = FILE_KINDS[kind];
+  const input = $(`${p}_${kind}_input`), status = $(`${p}_${kind}_status`), btn = $(`${p}_${kind}_btn`);
+  const list = [...input.files];
+  if(!list.length){ toast("請先選擇檔案"); return; }
+  if(!storage){ toast("Storage 尚未設定，請確認 Firebase 設定"); return; }
+  if(list.some(f=>f.size > 20*1024*1024)){ toast("單檔請小於 20MB"); return; }
+  btn.disabled = true;
+  try{
+    for(let n=0;n<list.length;n++){
+      const file = list[n];
+      const path = `${COL}/${id}/${kind}/${Date.now()}_${file.name}`;
+      const ref = storage.ref().child(path);
+      const task = ref.put(file);
+      task.on('state_changed', s=>{
+        const pct = Math.round((s.bytesTransferred/s.totalBytes)*100);
+        status.textContent = `上傳中（${n+1}/${list.length}）${pct}%`;
+      });
+      await task;
+      const url = await ref.getDownloadURL();
+      const entry = {url, name:file.name, path, uploadedAt:Date.now()};
+      await db.collection(COL).doc(id).update({[k.field]: firebase.firestore.FieldValue.arrayUnion(entry), updatedAt: SERVER_TS()});
+      fileState[kind].push(entry);
+      if(currentDoc) currentDoc[k.field] = fileState[kind].slice();
+    }
+    input.value = ''; status.textContent = "已上傳"; toast(`${k.label}已上傳`);
+    refreshFileList(kind,p);
+  }catch(err){
+    console.error(err); status.textContent = ""; toast("上傳失敗，請確認 Storage 設定是否正確");
+  }finally{ btn.disabled = false; }
+}
+async function removeFile(kind, i, p, id){
+  const k = FILE_KINDS[kind];
+  const entry = fileState[kind][i]; if(!entry) return;
+  if(!confirm(`確定要移除「${entry.name}」嗎？`)) return;
+  try{
+    await db.collection(COL).doc(id).update({[k.field]: firebase.firestore.FieldValue.arrayRemove(entry), updatedAt: SERVER_TS()});
+    if(entry.path && storage) storage.ref().child(entry.path).delete().catch(()=>{});
+    fileState[kind].splice(i,1);
+    if(currentDoc) currentDoc[k.field] = fileState[kind].slice();
+    refreshFileList(kind,p); toast("已移除");
+  }catch(err){ console.error(err); toast("移除失敗，請確認網路連線"); }
+}
+function fileLinksHTML(doc){
+  return Object.keys(FILE_KINDS).map(kind=>{
+    const files = doc[FILE_KINDS[kind].field] || [];
+    const body = files.length
+      ? files.map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener" style="margin-right:12px;">📄 ${esc(f.name)}</a>`).join("")
+      : `<span class="unanswered">尚未上傳</span>`;
+    return `<div style="margin-top:10px;font-size:13.5px;"><span class="muted">${FILE_KINDS[kind].label}：</span>${body}</div>`;
+  }).join("");
+}
+
+/* ============ 路由 ============ */
+const app = $('app');
+$('navHome').addEventListener('click', e=>{
+  e.preventDefault(); history.pushState({}, "", location.pathname); route();
+});
+window.addEventListener('popstate', route);
+
+let adminUnlocked = false;
+let afterLoginCallback = null;
+function requireAdmin(cb){
+  if(adminUnlocked){ cb(); return; }
+  afterLoginCallback = cb; renderLoginScreen();
+}
+function route(){
+  const params = new URLSearchParams(location.search);
+  const id = params.get('id'), previewId = params.get('preview');
+  if(previewId) requireAdmin(()=>renderPreview(previewId));
+  else if(id) renderFormView(id);
+  else requireAdmin(renderAdminDashboard);
+}
+
+/* ============ 管理後台登入 ============ */
+function renderLoginScreen(){
+  app.innerHTML = `
+    <div class="card" style="max-width:360px;margin:60px auto;">
+      <h2 class="serif" style="margin-top:0;font-size:17px;">管理後台登入</h2>
+      <p class="muted">建立新的錄取簽呈、預覽進度、列印表單。</p>
+      <label>密碼</label>
+      <input type="password" id="adminPass" placeholder="輸入密碼">
+      <div style="margin-top:14px;"><button class="btn-primary" id="adminGo">登入</button></div>
+      <p id="adminErr" style="color:var(--seal);font-size:13px;display:none;margin-top:8px;">密碼錯誤</p>
+    </div>`;
+  const tryLogin = ()=>{
+    if($('adminPass').value === ADMIN_PASSCODE){
+      adminUnlocked = true;
+      const cb = afterLoginCallback || renderAdminDashboard;
+      afterLoginCallback = null; cb();
+    } else $('adminErr').style.display = 'block';
+  };
+  $('adminGo').onclick = tryLogin;
+  $('adminPass').addEventListener('keydown', e=>{ if(e.key==='Enter') tryLogin(); });
+}
+
+/* ============ 管理後台主畫面 ============ */
+let editingRecordId = null;
+function renderAdminDashboard(){
+  editingRecordId = null;
+  app.innerHTML = `
+    <div class="card">
+      <h2 class="serif" style="margin-top:0;font-size:17px;" id="formTitle">新增錄取簽呈</h2>
+      <div class="field-row">
+        <div><label>應徵者姓名</label><input type="text" id="nCand"></div>
+        <div><label>應徵部門</label><input type="text" id="nDept"></div>
+      </div>
+      <div class="field-row" style="margin-top:12px;">
+        <div><label>應徵職務</label><input type="text" id="nPos"></div>
+        <div><label>面談日期</label><input type="date" id="nDate"></div>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:10px;">
+        <button class="btn-primary" id="createBtn">建立並產生連結</button>
+        <button class="btn-ghost" id="cancelEditBtn" style="display:none;">取消編輯</button>
+      </div>
+      <div id="editFilesSection"></div>
+    </div>
+    <div class="card">
+      <h2 class="serif" style="margin-top:0;font-size:17px;">薪資項目管理</h2>
+      <p class="muted" style="margin-top:0;">在此新增的項目會出現在「核薪」勾選清單中，金額留空表示每次填寫。刪除項目不會影響已送出的紀錄。</p>
+      <div id="salaryItemsWrap" class="muted">載入中…</div>
+      <div class="sal-add-row">
+        <input type="text" id="newSalItemLabel" placeholder="項目名稱（例如：久任獎金）">
+        <input type="number" id="newSalItemAmount" placeholder="固定金額（留空表示每次填寫）">
+        <button class="btn-ghost" id="addSalItemBtn" type="button">＋ 新增項目</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2 class="serif" style="margin-top:0;font-size:17px;">所有簽呈</h2>
+      <div id="listWrap" class="muted">載入中…</div>
+    </div>`;
+  $('nDate').valueAsDate = new Date();
+  $('createBtn').onclick = createRecord;
+  $('cancelEditBtn').onclick = ()=>renderAdminDashboard();
+  $('addSalItemBtn').onclick = addSalaryItemDef;
+  $('newSalItemLabel').addEventListener('keydown', e=>{ if(e.key==='Enter') addSalaryItemDef(); });
+  renderSalaryItemsCard();
+  loadList();
+}
+
+async function renderSalaryItemsCard(){
+  const wrap = $('salaryItemsWrap'); if(!wrap) return;
+  wrap.innerHTML = `<p class="muted" style="margin:4px 0;">載入中…</p>`;
+  try{
+    const snap = await db.collection('salaryItems').orderBy('order','asc').get();
+    if(snap.empty){ wrap.innerHTML = `<p class="muted" style="margin:4px 0;">尚未新增自訂薪資項目。</p>`; return; }
+    let rows = "";
+    snap.forEach(doc=>{
+      const d = doc.data();
+      const amtLabel = d.amount!=null ? `NT$ ${Number(d.amount).toLocaleString('zh-TW')}（固定）` : `填寫時輸入金額`;
+      rows += `<div class="salary-item-admin-row"><span class="item-name">${esc(d.label)}</span><span class="muted">${amtLabel}</span><button class="sal-remove-btn" data-del-item="${doc.id}" type="button" title="刪除此項目">✕</button></div>`;
+    });
+    wrap.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px;">${rows}</div>`;
+    wrap.querySelectorAll('[data-del-item]').forEach(b=>{ b.onclick = ()=>deleteSalaryItemDef(b.dataset.delItem); });
+  }catch(err){ console.error(err); wrap.innerHTML = `<p class="muted" style="margin:4px 0;">載入失敗，請確認 Firebase 設定是否正確</p>`; }
+}
+async function addSalaryItemDef(){
+  const label = $('newSalItemLabel').value.trim();
+  if(!label){ toast("請輸入項目名稱"); return; }
+  const amtEl = $('newSalItemAmount');
+  const amount = amtEl.value !== '' ? Number(amtEl.value) : null;
+  const btn = $('addSalItemBtn'); btn.disabled = true;
+  try{
+    const last = await db.collection('salaryItems').orderBy('order','desc').limit(1).get();
+    const nextOrder = last.empty ? 0 : (Number(last.docs[0].data().order)||0) + 1;
+    await db.collection('salaryItems').add({label, amount, order: nextOrder, createdAt: SERVER_TS()});
+    $('newSalItemLabel').value = ''; amtEl.value = '';
+    toast("已新增薪資項目"); renderSalaryItemsCard();
+  }catch(err){ console.error(err); toast("新增失敗，請確認網路連線或 Firebase 設定"); }
+  finally{ btn.disabled = false; }
+}
+async function deleteSalaryItemDef(id){
+  if(!confirm("確定要刪除這個薪資項目嗎？（已送出的紀錄不受影響）")) return;
+  try{ await db.collection('salaryItems').doc(id).delete(); toast("已刪除"); renderSalaryItemsCard(); }
+  catch(err){ console.error(err); toast("刪除失敗，請確認網路連線或 Firebase 設定"); }
+}
+
+async function editRecord(id){
+  try{
+    const snap = await db.collection(COL).doc(id).get();
+    if(!snap.exists){ toast("找不到這筆紀錄"); return; }
+    const d = snap.data();
+    editingRecordId = id;
+    fileState = {resume:(d.resumeFiles||[]).slice(), consent:(d.consentFiles||[]).slice()};
+    currentDoc = d;
+    $('formTitle').textContent = "編輯基本資料／附件";
+    $('nCand').value = d.candidateName || ""; $('nDept').value = d.department || "";
+    $('nPos').value = d.position || "";      $('nDate').value = d.interviewDate || "";
+    $('createBtn').textContent = "儲存修改"; $('createBtn').onclick = saveEditedRecord;
+    $('cancelEditBtn').style.display = 'inline-block';
+    $('editFilesSection').innerHTML = `<div class="divider"></div>` + buildFilesEditor('resume','adm',false) + buildFilesEditor('consent','adm',false);
+    wireFilesEditor('resume','adm',id); wireFilesEditor('consent','adm',id);
+    window.scrollTo({top:0, behavior:'smooth'});
+  }catch(err){ console.error(err); toast("讀取失敗，請確認網路連線或 Firebase 設定"); }
+}
+function readBasics(){
+  return {
+    candidateName: $('nCand').value.trim(), department: $('nDept').value.trim(),
+    position: $('nPos').value.trim(), interviewDate: $('nDate').value
+  };
+}
+async function saveEditedRecord(){
+  const b = readBasics();
+  if(!b.candidateName || !b.department || !b.position || !b.interviewDate){ toast("請完整填寫應徵者姓名、部門、職務與面談日期"); return; }
+  const btn = $('createBtn'); btn.disabled = true; btn.textContent = "儲存中…";
+  try{
+    await db.collection(COL).doc(editingRecordId).update({...b, updatedAt: SERVER_TS()});
+    toast("已儲存修改"); renderAdminDashboard();
+  }catch(err){ console.error(err); toast("儲存失敗，請確認網路連線或 Firebase 設定"); btn.disabled = false; btn.textContent = "儲存修改"; }
+}
+async function createRecord(){
+  const b = readBasics();
+  if(!b.candidateName || !b.department || !b.position || !b.interviewDate){ toast("請完整填寫應徵者姓名、部門、職務與面談日期"); return; }
+  const btn = $('createBtn'); btn.disabled = true; btn.textContent = "建立中…";
+  try{
+    await db.collection(COL).add({
+      ...b,
+      status: 'hr',
+      hrEval: emptyHrEval(),
+      resumeFiles: [], consentFiles: [],
+      scores: emptyScores(),
+      hireDecision: null, decisionReason: "", qualCheck: false, startDate: "",
+      salaryProposal: emptySalary(), salaryFinal: null,
+      hr: null, interviewer: null, unitManager: null, deptManager: null, executive: null, generalAffairs: null,
+      createdAt: SERVER_TS(), updatedAt: SERVER_TS()
+    });
+    toast("已建立，請將連結分享給人資審核人員");
+    renderAdminDashboard();
+  }catch(err){ console.error(err); toast("建立失敗，請確認 Firebase 設定是否正確"); btn.disabled = false; btn.textContent = "建立並產生連結"; }
+}
+async function deleteRecord(id, name){
+  if(!confirm(`確定要刪除「${name}」這筆簽呈嗎？此動作無法復原。`)) return;
+  try{ await db.collection(COL).doc(id).delete(); toast("已刪除"); loadList(); }
+  catch(err){ console.error(err); toast("刪除失敗，請確認網路連線或 Firebase 設定"); }
+}
+async function loadList(){
+  const wrap = $('listWrap');
+  try{
+    const snap = await db.collection(COL).orderBy('createdAt','desc').limit(50).get();
+    if(snap.empty){ wrap.innerHTML = `<p class="muted">尚無紀錄</p>`; return; }
+    let rows = "";
+    snap.forEach(doc=>{
+      const d = doc.data();
+      const link = `${location.origin}${location.pathname}?id=${doc.id}`;
+      const done = d.status === 'completed';
+      rows += `
+        <tr>
+          <td><b>${esc(d.candidateName)}</b><br><span class="muted">${esc(d.department)} · ${esc(d.position)}</span></td>
+          <td>${esc(d.interviewDate||"")}</td>
+          <td><span class="status-pill ${done?'done':'wait'}">${done?'已完成':'待 '+STAGE_LABEL[d.status]+' 處理'}</span></td>
+          <td><button class="link-copy" data-link="${link}">複製連結 ↗</button></td>
+          <td style="white-space:nowrap;">
+            <button class="btn-ghost" data-edit="${doc.id}" style="padding:6px 12px;font-size:12px;margin-right:6px;">編輯</button>
+            <button class="btn-ghost" data-preview="${doc.id}" style="padding:6px 12px;font-size:12px;margin-right:6px;">預覽進度</button>
+            <button class="btn-ghost" data-print="${doc.id}" style="padding:6px 12px;font-size:12px;margin-right:6px;">轉出PDF</button>
+            <button class="btn-danger" data-delete="${doc.id}" data-name="${esc(d.candidateName)}" style="padding:6px 12px;font-size:12px;">刪除</button>
+          </td>
+        </tr>`;
+    });
+    wrap.innerHTML = `<div style="overflow-x:auto;"><table class="admin-table"><thead><tr><th>應徵者</th><th>面談日期</th><th>目前狀態</th><th>連結</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    wrap.querySelectorAll('[data-link]').forEach(b=>{ b.onclick = ()=>navigator.clipboard.writeText(b.dataset.link).then(()=>toast("連結已複製")); });
+    wrap.querySelectorAll('[data-edit]').forEach(b=>{ b.onclick = ()=>editRecord(b.dataset.edit); });
+    wrap.querySelectorAll('[data-delete]').forEach(b=>{ b.onclick = ()=>deleteRecord(b.dataset.delete, b.dataset.name); });
+    wrap.querySelectorAll('[data-preview]').forEach(b=>{ b.onclick = ()=>window.open(`${location.pathname}?preview=${b.dataset.preview}`, '_blank'); });
+    wrap.querySelectorAll('[data-print]').forEach(b=>{ b.onclick = ()=>printRecord(b.dataset.print); });
+  }catch(err){ console.error(err); wrap.innerHTML = `<p class="muted">載入失敗，請確認 Firebase 設定是否正確</p>`; }
+}
+
+/* ============ 簽名板 ============ */
+function setupSignaturePad(canvas){
+  const ctx = canvas.getContext('2d');
+  const ratio = window.devicePixelRatio || 1;
+  const rect0 = canvas.getBoundingClientRect();
+  canvas.width = rect0.width * ratio; canvas.height = rect0.height * ratio;
+  ctx.scale(ratio, ratio); ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#1B2A41';
+  let drawing = false, hasInk = false, last = null;
+  function pos(e){
+    const rect = canvas.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    return {x:p.clientX-rect.left, y:p.clientY-rect.top};
+  }
+  function start(e){ e.preventDefault(); drawing = true; last = pos(e); }
+  function move(e){
+    if(!drawing) return; e.preventDefault();
+    const p = pos(e);
+    ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke();
+    last = p; hasInk = true;
+  }
+  function end(){ drawing = false; }
+  canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  canvas.addEventListener('touchstart', start, {passive:false});
+  canvas.addEventListener('touchmove', move, {passive:false});
+  canvas.addEventListener('touchend', end);
+  return {
+    clear(){ ctx.clearRect(0,0,canvas.width,canvas.height); hasInk = false; },
+    isEmpty(){ return !hasInk; },
+    dataURL(){ return canvas.toDataURL('image/png'); }
+  };
+}
+
+/* ============ 人資審核：編輯／唯讀 ============ */
+function buildHrEditor(doc){
+  const h = Object.assign(emptyHrEval(), doc.hrEval || {});
+  const yn = [{v:"yes",l:"是"},{v:"no",l:"否"}];
+  const methods = CONTACT_METHODS.map(m=>`
+    <label class="opt ${h.methods.includes(m)?'selected':''}">
+      <input type="checkbox" name="hrMethod" value="${m}" ${h.methods.includes(m)?'checked':''}><span>${m}</span>
+    </label>`).join("");
+  return `
+    <div class="card">
+      <h2 class="serif" style="margin-top:0;font-size:16px;">人資審核：電訪／初面</h2>
+      <div class="q">
+        <div class="q-title">是否已有電訪或初面<span class="req-mark">*</span></div>
+        ${radioGroup('hrContacted', yn, h.contacted)}
+      </div>
+      <div id="hrDetail" class="sub-card" style="${h.contacted==='yes'?'':'display:none;'}">
+        <div class="field-row" style="margin-bottom:16px;">
+          <div>
+            <div class="q-title" style="font-weight:700;font-size:14px;margin-bottom:8px;">方式<span class="req-mark">*</span></div>
+            <div class="opt-row">${methods}</div>
+          </div>
+          <div><label for="hrDate">電訪／初面日期<span class="req-mark">*</span></label><input type="date" id="hrDate" value="${esc(h.date)}"></div>
+        </div>
+        <div class="q">
+          <div class="q-title">1. 溝通能力<span class="req-mark">*</span></div>
+          ${radioGroup('hrComm', COMM_OPTIONS.map((l,i)=>({v:i,l})), h.communication)}
+        </div>
+        <div class="q">
+          <div class="q-title">2. 態度是否積極<span class="req-mark">*</span></div>
+          ${radioGroup('hrAtt', ATT_OPTIONS.map((l,i)=>({v:i,l})), h.attitude)}
+        </div>
+        <div class="q" style="margin-bottom:0;">
+          <div class="q-title">3. 是否具有相關經驗<span class="req-mark">*</span></div>
+          ${radioGroup('hrExp', yn, h.experience)}
+        </div>
+      </div>
+      <div style="margin-top:16px;">
+        <label for="hrNote">人資審核備註（選填）</label>
+        <textarea id="hrNote" placeholder="例如：期望薪資、可到職日、特殊狀況…">${esc(h.note)}</textarea>
+      </div>
+    </div>`;
+}
+function wireHrEditor(){
+  document.querySelectorAll('input[name="hrContacted"]').forEach(r=>{
+    r.addEventListener('change', ()=>{
+      const yes = document.querySelector('input[name="hrContacted"]:checked').value === 'yes';
+      $('hrDetail').style.display = yes ? '' : 'none';
+    });
+  });
+}
+function gatherHr(){
+  const v = n => { const c = document.querySelector(`input[name="${n}"]:checked`); return c ? c.value : null; };
+  const contacted = v('hrContacted');
+  const yes = contacted === 'yes';
+  return {
+    contacted,
+    methods: yes ? [...document.querySelectorAll('input[name="hrMethod"]:checked')].map(x=>x.value) : [],
+    date: yes ? $('hrDate').value : "",
+    communication: yes && v('hrComm')!==null ? parseInt(v('hrComm'),10) : null,
+    attitude:      yes && v('hrAtt') !==null ? parseInt(v('hrAtt'),10)  : null,
+    experience:    yes ? v('hrExp') : null,
+    note: $('hrNote').value.trim()
+  };
+}
+function validateHr(g, doc){
+  if(!g.contacted) return "請選擇「是否已有電訪或初面」";
+  if(g.contacted === 'yes'){
+    if(!g.methods.length) return "請勾選電訪或初面方式";
+    if(!g.date) return "請填寫電訪／初面日期";
+    if(g.communication === null) return "請勾選溝通能力";
+    if(g.attitude === null) return "請勾選態度是否積極";
+    if(!g.experience) return "請選擇是否具有相關經驗";
+  }
+  if(!(fileState.resume||[]).length) return "請上傳應徵者履歷表";
+  if(!(fileState.consent||[]).length) return "請上傳應徵資料暨個資同意書";
+  return null;
+}
+function buildHrReadonly(doc){
+  const h = doc.hrEval;
+  let body;
+  if(!h || !h.contacted){
+    body = `<span class="unanswered">尚未審核</span>`;
+  } else if(h.contacted === 'no'){
+    body = `<div class="salary-row"><span>是否已有電訪或初面</span><span class="tag bad">否（尚未電訪／初面）</span></div>`;
+  } else {
+    const exp = h.experience === 'yes' ? `<span class="tag ok">是</span>` : `<span class="tag bad">否</span>`;
+    body = `
+      <div class="salary-row"><span>是否已有電訪或初面</span><span><span class="tag ok">是</span>${esc((h.methods||[]).join("、"))}　${esc(h.date||'')}</span></div>
+      <div class="salary-row" style="margin-top:8px;"><span>溝通能力</span><b>${esc(COMM_OPTIONS[h.communication] ?? '—')}</b></div>
+      <div class="salary-row" style="margin-top:8px;"><span>態度是否積極</span><b>${esc(ATT_OPTIONS[h.attitude] ?? '—')}</b></div>
+      <div class="salary-row" style="margin-top:8px;"><span>是否具有相關經驗</span>${exp}</div>`;
+  }
+  const note = (h && h.note) ? `<div class="muted" style="margin-top:10px;white-space:pre-wrap;">備註：${esc(h.note)}</div>` : ``;
+  return `<div class="card"><h2 class="serif" style="margin-top:0;font-size:16px;">人資審核：電訪／初面</h2>${body}${note}</div>`;
+}
+
+/* ============ 評分表：編輯／唯讀 ============ */
+function skillRowHTML(r, idx){
+  return `
+    <div class="score-row" data-skill-row>
+      <input type="text" class="sk-name" placeholder="技能名稱（可自訂）" value="${esc(r.name||'')}">
+      <select class="sk-score">${scoreOptionsHTML(r.score)}</select>
+      <input type="text" class="sk-note note" placeholder="備註（選填）" value="${esc(r.note||'')}">
+      <button type="button" class="sal-remove-btn sk-rm" title="移除此列">✕</button>
+    </div>`;
+}
+function buildScoreEditor(doc){
+  const sc = doc.scores || emptyScores();
+  const skills = (sc.skills && sc.skills.length ? sc.skills : emptyScores().skills);
+  const comps  = (sc.competencies && sc.competencies.length ? sc.competencies : emptyScores().competencies);
+  const compRows = comps.map((r,i)=>`
+    <div class="score-row" data-comp-row="${i}">
+      <div class="sn">${i+1}. ${esc(r.name)}</div>
+      <select class="cp-score">${scoreOptionsHTML(r.score)}</select>
+      <input type="text" class="cp-note note" placeholder="備註（選填）" value="${esc(r.note||'')}">
+      <span class="rm-slot"></span>
+    </div>`).join("");
+  return `
+    <div class="card" id="scoreCard">
+      <h2 class="serif" style="margin-top:0;font-size:16px;">面試評分彙整</h2>
+      <p class="muted" style="margin-top:0;">每項以 0.5 為單位評分（1–5 分）；介於兩個等級之間請給 .5 分並於備註說明原因。</p>
+
+      <div class="sec-title">一、專業技能 <small>權重 60%・技能項目由用人主管設計，可自行修改名稱、增減列</small></div>
+      <div class="score-head"><span>技能名稱</span><span>評分（/5）</span><span>備註</span><span></span></div>
+      <div id="skillRows">${skills.map(skillRowHTML).join("")}</div>
+      <button type="button" class="btn-ghost" id="addSkillBtn" style="padding:7px 14px;font-size:12.5px;">＋ 新增技能項目</button>
+      <div class="avg-line"><span>技能平均</span><b id="avgSkill">—</b></div>
+
+      <div class="divider"></div>
+      <div class="sec-title">二、軟性職能 <small>權重 40%・題庫固定項目</small></div>
+      <div class="score-head"><span>職能名稱</span><span>評分（/5）</span><span>備註</span><span></span></div>
+      <div id="compRows">${compRows}</div>
+      <div class="avg-line"><span>職能平均</span><b id="avgComp">—</b></div>
+
+      <div class="total-box">
+        <div class="sec-title" style="margin:0 0 6px;">三、加權總分</div>
+        <div class="row"><span>專業技能平均 × 60%</span><b id="wSkill">—</b></div>
+        <div class="row"><span>軟性職能平均 × 40%</span><b id="wComp">—</b></div>
+        <div class="row grand"><span>加權總分</span><span><span id="wTotal">—</span> / 5</span></div>
+        <div id="wBand"></div>
+      </div>
+      ${rubricHTML()}
+    </div>`;
+}
+function rubricHTML(){
+  return `
+    <details class="rubric">
+      <summary>評分標準與決策參考（點此展開）</summary>
+      <table class="ro-table" style="margin-top:10px;">
+        <thead><tr><th>分數</th><th>評價</th><th>行為描述（面試中可觀察到的表現）</th></tr></thead>
+        <tbody>${RUBRIC.map(r=>`<tr><td class="sc">${r[0]}</td><td style="white-space:nowrap;">${r[1]}</td><td>${r[2]}</td></tr>`).join("")}</tbody>
+      </table>
+      <table class="ro-table" style="margin-top:12px;">
+        <thead><tr><th>加權總分</th><th>建議</th></tr></thead>
+        <tbody>
+          <tr><td class="sc">4.0–5.0</td><td>強烈建議錄用</td></tr>
+          <tr><td class="sc">3.5–3.9</td><td>建議錄用，可進一步確認疑慮項目</td></tr>
+          <tr><td class="sc">3.0–3.4</td><td>有條件錄用，需主管明確說明接受理由</td></tr>
+          <tr><td class="sc">&lt; 3.0</td><td>明確不錄用</td></tr>
+        </tbody>
+      </table>
+    </details>`;
+}
+function readScoresFromForm(){
+  const skills = [...document.querySelectorAll('[data-skill-row]')].map(row=>{
+    const sv = row.querySelector('.sk-score').value;
+    return {name: row.querySelector('.sk-name').value.trim(), score: sv===''?null:Number(sv), note: row.querySelector('.sk-note').value.trim()};
+  });
+  const competencies = COMPETENCIES.map((name,i)=>{
+    const row = document.querySelector(`[data-comp-row="${i}"]`);
+    const sv = row.querySelector('.cp-score').value;
+    return {name, score: sv===''?null:Number(sv), note: row.querySelector('.cp-note').value.trim()};
+  });
+  return {skills, competencies};
+}
+function refreshScoreSummary(){
+  const sc = readScoresFromForm();
+  const sk = activeSkills(sc);
+  const sAvg = avgOf(sk), cAvg = avgOf(sc.competencies);
+  $('avgSkill').textContent = f2(sAvg); $('avgComp').textContent = f2(cAvg);
+  const w = calcWeighted(sc);
+  $('wSkill').textContent = sAvg===null ? "—" : f2(sAvg*W_SKILL);
+  $('wComp').textContent  = cAvg===null ? "—" : f2(cAvg*W_COMP);
+  $('wTotal').textContent = f2(w.total);
+  const b = bandOf(w.total);
+  $('wBand').innerHTML = b ? `<span class="band ${b.cls}">${b.text}</span>` : `<span class="muted">全部項目評分後自動計算</span>`;
+  const reasonStar = $('reasonStar');
+  if(reasonStar){
+    reasonStar.style.display = (w.total!==null && w.total<3.5) ? 'inline' : 'none';
+  }
+}
+function wireScoreEditor(){
+  const card = $('scoreCard');
+  card.addEventListener('input', refreshScoreSummary);
+  card.addEventListener('change', refreshScoreSummary);
+  $('addSkillBtn').onclick = ()=>{
+    const rows = document.querySelectorAll('[data-skill-row]');
+    if(rows.length >= MAX_SKILLS){ toast(`專業技能最多 ${MAX_SKILLS} 項`); return; }
+    $('skillRows').insertAdjacentHTML('beforeend', skillRowHTML({name:"",score:null,note:""}));
+    const last = $('skillRows').lastElementChild.querySelector('.sk-name'); if(last) last.focus();
+    refreshScoreSummary();
+  };
+  $('skillRows').addEventListener('click', e=>{
+    const b = e.target.closest('.sk-rm'); if(!b) return;
+    if(document.querySelectorAll('[data-skill-row]').length <= 1){ toast("至少保留一項專業技能"); return; }
+    b.closest('[data-skill-row]').remove(); refreshScoreSummary();
+  });
+  refreshScoreSummary();
+}
+function buildScoresReadonlyCard(doc){
+  const sc = doc.scores;
+  if(!sc || !calcWeighted(sc).total){
+    // 尚未完成：仍顯示已填內容
+    if(!sc || (!activeSkills(sc).some(r=>r.score!=null) && !(sc.competencies||[]).some(r=>r.score!=null))){
+      return `<div class="card"><h2 class="serif" style="margin-top:0;font-size:16px;">面試評分彙整</h2><span class="unanswered">尚未評分</span></div>`;
+    }
+  }
+  const rowsOf = rows => rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.name)}</td><td class="sc">${r.score!=null?Number(r.score).toFixed(1):'—'} / 5</td><td>${esc(r.note||'')}</td></tr>`).join("");
+  const w = calcWeighted(sc), b = bandOf(w.total);
+  return `
+    <div class="card">
+      <h2 class="serif" style="margin-top:0;font-size:16px;">面試評分彙整</h2>
+      <div class="sec-title">一、專業技能 <small>權重 60%</small></div>
+      <div style="overflow-x:auto;"><table class="ro-table"><thead><tr><th>#</th><th>技能名稱</th><th>評分</th><th>備註</th></tr></thead><tbody>${rowsOf(activeSkills(sc))}</tbody></table></div>
+      <div class="avg-line"><span>技能平均</span><b>${f2(w.s)}</b></div>
+      <div class="sec-title" style="margin-top:18px;">二、軟性職能 <small>權重 40%</small></div>
+      <div style="overflow-x:auto;"><table class="ro-table"><thead><tr><th>#</th><th>職能名稱</th><th>評分</th><th>備註</th></tr></thead><tbody>${rowsOf(sc.competencies||[])}</tbody></table></div>
+      <div class="avg-line"><span>職能平均</span><b>${f2(w.c)}</b></div>
+      <div class="total-box">
+        <div class="row"><span>專業技能平均 × 60%</span><b>${w.s===null?'—':f2(w.s*W_SKILL)}</b></div>
+        <div class="row"><span>軟性職能平均 × 40%</span><b>${w.c===null?'—':f2(w.c*W_COMP)}</b></div>
+        <div class="row grand"><span>加權總分</span><span>${f2(w.total)} / 5</span></div>
+        ${b ? `<span class="band ${b.cls}">${b.text}</span>` : ``}
+      </div>
+      ${rubricHTML()}
+    </div>`;
+}
+
+/* ============ 錄用決策：編輯／唯讀 ============ */
+function buildDecisionEditor(doc){
+  return `
+    <div class="card">
+      <h2 class="serif" style="margin-top:0;font-size:16px;">四、錄用決策（用人主管）</h2>
+      <div class="q">
+        <div class="q-title">用人主管錄用建議<span class="req-mark">*</span></div>
+        ${radioGroup('hireDecision', HIRE_OPTIONS.map(o=>({v:o,l:o})), doc.hireDecision)}
+      </div>
+      <div class="q">
+        <label for="reasonInput">理由<span class="req-mark" id="reasonStar" style="display:none;">*</span>
+          <span class="muted" style="font-weight:400;">（加權總分 3.0–3.4，或有疑慮、候補、不錄用時須說明）</span></label>
+        <textarea id="reasonInput" placeholder="請說明理由…">${esc(doc.decisionReason||'')}</textarea>
+      </div>
+      <div class="field-row">
+        <div>
+          <label>資歷查核</label>
+          <label class="opt ${doc.qualCheck?'selected':''}" style="display:inline-flex;border:1px solid var(--line);background:#FCFBF8;padding:9px 14px;">
+            <input type="checkbox" id="qualCheck" ${doc.qualCheck?'checked':''}><span>已完成（依個資同意書）</span>
+          </label>
+        </div>
+        <div><label for="startDateInput">到職日</label><input type="date" id="startDateInput" value="${esc(doc.startDate||'')}"></div>
+      </div>
+    </div>`;
+}
+function buildDecisionReadonly(doc){
+  const d = doc.hireDecision;
+  const cls = d==='錄用' ? 'ok' : (d==='不錄用' ? 'bad' : '');
+  return `
+    <div class="card">
+      <h2 class="serif" style="margin-top:0;font-size:16px;">四、錄用決策（用人主管）</h2>
+      <div class="salary-row"><span>用人主管錄用建議</span>${d?`<span class="tag ${cls}">${esc(d)}</span>`:'<span class="unanswered">尚未填寫</span>'}</div>
+      ${doc.decisionReason?`<div style="margin-top:10px;"><div class="comment-label" style="font-size:14px;">理由</div><div class="comment-box" style="font-size:14.5px;">${esc(doc.decisionReason)}</div></div>`:''}
+      <div class="salary-row" style="margin-top:10px;"><span>資歷查核（依個資同意書）</span>${doc.qualCheck?'<span class="tag ok">已完成</span>':'<span class="tag">未勾選</span>'}</div>
+      <div class="salary-row" style="margin-top:8px;"><span>到職日</span><span class="sal-fixed-amt">${doc.startDate?esc(doc.startDate):'<span class="unanswered">尚未填寫</span>'}</span></div>
+    </div>`;
+}
+function gatherInterviewer(){
+  const c = document.querySelector('input[name="hireDecision"]:checked');
+  return {
+    scores: readScoresFromForm(),
+    hireDecision: c ? c.value : null,
+    decisionReason: $('reasonInput').value.trim(),
+    qualCheck: $('qualCheck').checked,
+    startDate: $('startDateInput').value,
+    salary: readSalaryFromForm('sal')
+  };
+}
+function validateInterviewer(g){
+  const sk = g.scores.skills;
+  if(sk.some(r=>!r.name && r.score!==null)) return "有評分的技能項目請填寫技能名稱";
+  const act = sk.filter(r=>r.name);
+  if(!act.length) return "請至少填寫一項專業技能";
+  if(act.some(r=>r.score===null)) return "請完成所有專業技能的評分（不需要的列請按 ✕ 移除）";
+  if(g.scores.competencies.some(r=>r.score===null)) return "請完成所有軟性職能的評分";
+  if(!g.hireDecision) return "請選擇用人主管錄用建議";
+  const w = calcWeighted(g.scores);
+  if((w.total<3.5 || g.hireDecision!=='錄用') && !g.decisionReason) return "加權總分低於 3.5 或非「錄用」時，請填寫理由";
+  if(g.hireDecision !== '不錄用'){
+    if(!g.startDate) return "請填寫到職日";
+    if(g.salary.baseSalary===null || isNaN(g.salary.baseSalary)) return "請填寫本薪";
+    if(!g.salary.commitment) return "請填寫薪資承諾，若無請填「無」";
+  }
+  return null;
+}
+
+/* ============ 簽核紀錄 ============ */
+function signedRowHTML(doc, role){
+  const d = doc[role]; if(!d) return "";
+  return `
+    <div class="signed-block" style="margin-top:14px;">
+      <div class="chop">${STAGE_CHOP[role].replace("\n","<br>")}</div>
+      <img src="${d.signature}" alt="簽名">
+      <div class="signed-meta"><b>${STAGE_LABEL[role]}</b><br>簽署時間：${fmtDate(d.signedAt)}</div>
+    </div>`;
+}
+function signedCardHTML(doc){
+  const rows = SIGN_STAGES.map(r=>signedRowHTML(doc,r)).join("");
+  return rows ? `<div class="card"><h2 class="serif" style="margin-top:0;font-size:16px;">簽核紀錄</h2>${rows}</div>` : ``;
+}
+function stepperHTML(doc){
+  const idx = STAGE_ORDER.indexOf(doc.status);
+  return `<div class="stepper">` + SIGN_STAGES.map((s,i)=>{
+    const cls = i < idx ? "done" : (i === idx ? "active" : "");
+    return `<div class="step ${cls}">${STAGE_LABEL[s]}<span class="sub">${i<idx?'已簽核':(i===idx?'進行中':'待處理')}</span></div>`;
+  }).join("") + `</div>`;
+}
+function headerCardHTML(doc, backLink){
+  return `
+    <div class="card">
+      ${backLink?'<a href="#" id="backAdmin" style="font-size:13px;">← 返回管理後台</a>':''}
+      <div class="field-row" ${backLink?'style="margin-top:10px;"':''}>
+        <div><span class="muted">應徵者姓名</span><div style="font-weight:700;font-size:16px;">${esc(doc.candidateName)}</div></div>
+        <div><span class="muted">應徵部門 / 職務</span><div style="font-weight:700;font-size:16px;">${esc(doc.department)} / ${esc(doc.position)}</div></div>
+      </div>
+      <div style="margin-top:10px;"><span class="muted">面談日期</span><div style="font-weight:600;">${esc(doc.interviewDate)}</div></div>
+      ${fileLinksHTML(doc)}
+    </div>`;
+}
+
+/* ============ 表單／檢視畫面（簽核人連結，依 status 切換） ============ */
+async function renderFormView(id){
+  app.innerHTML = `<div class="muted">載入中…</div>`;
+  let doc;
+  try{
+    const snap = await db.collection(COL).doc(id).get();
+    if(!snap.exists){ app.innerHTML = `<div class="card">找不到這筆紀錄，連結可能有誤。</div>`; return; }
+    doc = snap.data();
+  }catch(err){ console.error(err); app.innerHTML = `<div class="card">載入失敗，請確認 Firebase 設定是否正確。</div>`; return; }
+  await loadDynamicSalaryItems();
+
+  currentDoc = doc;
+  fileState = {resume:(doc.resumeFiles||[]).slice(), consent:(doc.consentFiles||[]).slice()};
+
+  const st = doc.status, idx = STAGE_ORDER.indexOf(st);
+  const isHr = st==='hr', isIv = st==='interviewer', isExec = st==='executive';
+  const editable = st !== 'completed';
+
+  let html = headerCardHTML(doc) + stepperHTML(doc);
+
+  if(isHr){
+    html += buildHrEditor(doc);
+    html += `<div class="card"><h2 class="serif" style="margin-top:0;font-size:16px;">應徵附件<span class="req-mark">*</span></h2>
+      <p class="muted" style="margin-top:0;">可一次選取多個檔案（PDF、圖片、Word，單檔 20MB 內）。</p>
+      ${buildFilesEditor('resume','hr',true)}${buildFilesEditor('consent','hr',true)}</div>`;
+  } else {
+    html += buildHrReadonly(doc);
+  }
+
+  if(isIv){
+    html += buildScoreEditor(doc) + buildDecisionEditor(doc);
+    html += `<div class="card"><h2 class="serif" style="margin-top:0;font-size:16px;">核薪（建議錄取薪資）</h2>
+      <p class="muted" style="margin-top:0;">錄用或候補時請填寫；若為「不錄用」可略過。</p>
+      ${buildSalaryEditor(doc.salaryProposal,'sal',false)}</div>`;
+  } else if(idx > 1){
+    html += buildScoresReadonlyCard(doc) + buildDecisionReadonly(doc);
+    if(isExec){
+      html += `<div class="card"><h2 class="serif" style="margin-top:0;font-size:16px;">核薪核定</h2>
+        <p class="muted" style="margin-top:0;">以下為面試主管建議薪資，您可以確認或修改後再簽核。</p>
+        ${buildSalaryEditor(doc.salaryFinal || doc.salaryProposal,'salFinal',false)}</div>`;
+    } else {
+      const title = (st==='generalAffairs'||st==='completed') ? '核薪核定' : '建議錄取薪資';
+      html += `<div class="card"><h2 class="serif" style="margin-top:0;font-size:16px;">${title}</h2>${buildSalaryReadonly((st==='generalAffairs'||st==='completed') ? (doc.salaryFinal||doc.salaryProposal) : doc.salaryProposal)}</div>`;
+    }
+  }
+
+  html += signedCardHTML(doc);
+
+  if(st==='completed'){
+    html += `<div class="card" style="background:var(--good-bg);border-color:var(--good);"><b style="color:var(--good);">六關簽核皆已完成。</b><p class="muted" style="margin:6px 0 0;">此連結僅供檢視。如需紙本存查，可至管理後台使用「轉出PDF」。</p></div>`;
+  }
+  if(editable){
+    const showDraft = (isHr || isIv || isExec);
+    html += `
+      <div class="card">
+        <h2 class="serif" style="margin-top:0;font-size:16px;">${STAGE_LABEL[st]}簽核</h2>
+        <label>簽名（請直接於下方簽名）</label>
+        <canvas class="sig-box" id="sigPad"></canvas>
+        <div class="sig-tools">
+          <span class="sig-hint">簽好後直接送出即可</span>
+          <button class="btn-ghost" id="sigClear" type="button" style="padding:6px 14px;font-size:12px;">清除重簽</button>
+        </div>
+        <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
+          ${showDraft ? `<button class="btn-ghost" id="draftBtn">儲存草稿</button>` : ``}
+          <button class="btn-primary" id="submitBtn">確認送出並簽名</button>
+        </div>
+      </div>`;
+  }
+  app.innerHTML = html;
+
+  if(isHr){
+    wireHrEditor();
+    wireFilesEditor('resume','hr',id); wireFilesEditor('consent','hr',id);
+  }
+  if(isIv){ wireScoreEditor(); wireSalaryEditor('sal'); }
+  if(isExec) wireSalaryEditor('salFinal');
+
+  if(editable){
+    const pad = setupSignaturePad($('sigPad'));
+    $('sigClear').onclick = ()=>pad.clear();
+    const draftBtn = $('draftBtn');
+    if(draftBtn) draftBtn.onclick = ()=>saveDraft(id, st);
+    $('submitBtn').onclick = ()=>submitStage(id, doc, pad);
+  }
+}
+
+async function saveDraft(id, role){
+  const btn = $('draftBtn');
+  if(btn){ btn.disabled = true; btn.textContent = "儲存中…"; }
+  try{
+    const payload = {updatedAt: SERVER_TS()};
+    if(role==='hr'){
+      payload.hrEval = gatherHr();
+    } else if(role==='interviewer'){
+      const g = gatherInterviewer();
+      payload.scores = g.scores; payload.hireDecision = g.hireDecision; payload.decisionReason = g.decisionReason;
+      payload.qualCheck = g.qualCheck; payload.startDate = g.startDate; payload.salaryProposal = g.salary;
+    } else if(role==='executive'){
+      payload.salaryFinal = readSalaryFromForm('salFinal');
+    }
+    await db.collection(COL).doc(id).update(payload);
+    toast("草稿已儲存");
+  }catch(err){ console.error(err); toast("儲存失敗，請確認網路連線"); }
+  finally{ if(btn){ btn.disabled = false; btn.textContent = "儲存草稿"; } }
+}
+
+async function submitStage(id, doc, pad){
+  const role = doc.status;
+  if(pad.isEmpty()){ toast("請先簽名"); return; }
+  const payload = {
+    [role]: {signature: pad.dataURL(), signedAt: SERVER_TS()},
+    status: STAGE_ORDER[STAGE_ORDER.indexOf(role)+1],
+    updatedAt: SERVER_TS()
+  };
+  if(role==='hr'){
+    const g = gatherHr(); const err = validateHr(g, doc);
+    if(err){ toast(err); return; }
+    payload.hrEval = g;
+  }
+  if(role==='interviewer'){
+    const g = gatherInterviewer(); const err = validateInterviewer(g);
+    if(err){ toast(err); return; }
+    payload.scores = g.scores; payload.hireDecision = g.hireDecision; payload.decisionReason = g.decisionReason;
+    payload.qualCheck = g.qualCheck; payload.startDate = g.startDate; payload.salaryProposal = g.salary;
+  }
+  if(role==='executive') payload.salaryFinal = readSalaryFromForm('salFinal');
+
+  const btn = $('submitBtn'); btn.disabled = true; btn.textContent = "送出中…";
+  try{
+    await db.collection(COL).doc(id).update(payload);
+    toast("已送出簽核"); renderFormView(id);
+  }catch(err){ console.error(err); toast("送出失敗，請確認網路連線或 Firebase 設定"); btn.disabled = false; btn.textContent = "確認送出並簽名"; }
+}
+
+/* ============ 管理後台：進度預覽 ============ */
+async function renderPreview(id){
+  app.innerHTML = `<div class="muted">載入中…</div>`;
+  let doc;
+  try{
+    const snap = await db.collection(COL).doc(id).get();
+    if(!snap.exists){ app.innerHTML = `<div class="card">找不到這筆紀錄。</div>`; return; }
+    doc = snap.data();
+  }catch(err){ console.error(err); app.innerHTML = `<div class="card">載入失敗，請確認 Firebase 設定是否正確。</div>`; return; }
+  await loadDynamicSalaryItems();
+  app.innerHTML = headerCardHTML(doc, true) + stepperHTML(doc) +
+    buildHrReadonly(doc) + buildScoresReadonlyCard(doc) + buildDecisionReadonly(doc) +
+    `<div class="card"><h2 class="serif" style="margin-top:0;font-size:16px;">核薪</h2>${buildSalaryReadonly(doc.salaryFinal || doc.salaryProposal)}</div>` +
+    signedCardHTML(doc) +
+    `<div style="margin-bottom:30px;"><button class="btn-primary" id="previewPrintBtn">轉出PDF</button></div>`;
+  $('backAdmin').onclick = e=>{ e.preventDefault(); history.pushState({}, "", location.pathname); route(); };
+  $('previewPrintBtn').onclick = ()=>printRecord(id);
+}
+
+/* ============ 列印／匯出 PDF ============ */
+function buildSalaryPrintLines(sal){
+  sal = sal || emptySalary();
+  const L = [];
+  L.push(`本薪：${sal.baseSalary!=null ? Number(sal.baseSalary).toLocaleString('zh-TW') : '未填寫'} 元`);
+  L.push(`伙食費：${MEAL_ALLOWANCE.toLocaleString('zh-TW')} 元`);
+  allSalaryDefs().forEach(v=>{
+    const it = sal.items && sal.items[v.key];
+    if(it && it.checked) L.push(`${esc(v.label)}：${(Number(it.amount)||0).toLocaleString('zh-TW')} 元`);
+  });
+  (sal.customItems||[]).forEach(it=>{
+    if(it.checked && (it.label || it.amount)) L.push(`${esc(it.label||'未命名項目')}：${(Number(it.amount)||0).toLocaleString('zh-TW')} 元`);
+  });
+  let out = L.join("　｜　");
+  out += `<div><b>合計：${calcSalaryTotal(sal).toLocaleString('zh-TW')} 元</b>${sal.commitment?`　薪資承諾：${esc(sal.commitment)}`:''}</div>`;
+  return out;
+}
+async function printRecord(id){
+  const snap = await db.collection(COL).doc(id).get();
+  if(!snap.exists){ toast("找不到紀錄"); return; }
+  const d = snap.data();
+  await loadDynamicSalaryItems();
+  const bx = b => b ? '■' : '□';
+  const h = d.hrEval || emptyHrEval();
+  const sc = d.scores || emptyScores();
+  const w = calcWeighted(sc), b = bandOf(w.total);
+
+  const hrBody = h.contacted === 'yes'
+    ? `是否已有電訪或初面：${bx(true)}是（${esc((h.methods||[]).join("、"))}　${esc(h.date||'')}）　${bx(false)}否<br>
+       溝通能力：${COMM_OPTIONS.map((o,i)=>`${bx(h.communication===i)}${o}`).join("　")}<br>
+       態度是否積極：${ATT_OPTIONS.map((o,i)=>`${bx(h.attitude===i)}${o}`).join("　")}<br>
+       是否具有相關經驗：${bx(h.experience==='yes')}是　${bx(h.experience==='no')}否`
+    : `是否已有電訪或初面：${bx(false)}是　${bx(h.contacted==='no')}否`;
+  const rows = (arr)=>arr.map((r,i)=>`<tr><td class="c" style="width:7%">${i+1}</td><td>${esc(r.name)}</td><td class="c" style="width:14%">${r.score!=null?Number(r.score).toFixed(1):''} /5</td><td style="width:38%">${esc(r.note||'')}</td></tr>`).join("");
+  const fileNames = k => (d[FILE_KINDS[k].field]||[]).map(f=>esc(f.name)).join("、") || "—";
+
+  function signCell(role){
+    const s = d[role];
+    if(!s) return `<div class="p-sign-cell"><b>${STAGE_LABEL[role]}</b></div>`;
+    return `<div class="p-sign-cell"><b>${STAGE_LABEL[role]}</b><img src="${s.signature}"><div>${fmtDate(s.signedAt)}</div></div>`;
+  }
+
+  $('printArea').innerHTML = `
+    <div class="p-title">錄取簽呈表</div>
+    <div class="p-sub">永隆工程 · 面試評分彙整與錄用決策表（附件五）</div>
+    <div class="p-info">
+      <span>應徵者：${esc(d.candidateName)}</span><span>應徵部門：${esc(d.department)}</span>
+      <span>應徵職務：${esc(d.position)}</span><span>面談日期：${esc(d.interviewDate)}</span>
+    </div>
+    <div class="p-box"><div class="p-h">人資審核</div>${hrBody}
+      ${h.note?`<br>備註：${esc(h.note)}`:''}
+      <br>附件：履歷表（${fileNames('resume')}）；應徵資料暨個資同意書（${fileNames('consent')}）（電子檔請於系統內查看）</div>
+    <div class="p-box"><div class="p-h">一、專業技能（60%）</div>
+      <table class="p-table"><thead><tr><th>序號</th><th>技能名稱</th><th>評分</th><th>備註</th></tr></thead><tbody>${rows(activeSkills(sc))}
+      <tr><td></td><td><b>技能平均</b></td><td class="c"><b>${f2(w.s)}</b></td><td></td></tr></tbody></table></div>
+    <div class="p-box"><div class="p-h">二、軟性職能（40%）</div>
+      <table class="p-table"><thead><tr><th>序號</th><th>職能名稱</th><th>評分</th><th>備註</th></tr></thead><tbody>${rows(sc.competencies||[])}
+      <tr><td></td><td><b>職能平均</b></td><td class="c"><b>${f2(w.c)}</b></td><td></td></tr></tbody></table></div>
+    <div class="p-box"><div class="p-h">三、加權總分</div>
+      專業技能平均 × 60% ＝ ${w.s===null?'—':f2(w.s*W_SKILL)}　｜　軟性職能平均 × 40% ＝ ${w.c===null?'—':f2(w.c*W_COMP)}　｜　<b>加權總分 ${f2(w.total)} / 5</b>${b?`（${b.text}）`:''}
+      <br><span style="color:#444;">決策參考：4.0–5.0 強烈建議錄用；3.5–3.9 建議錄用；3.0–3.4 有條件錄用，需主管說明接受理由；&lt;3.0 明確不錄用</span></div>
+    <div class="p-box"><div class="p-h">四、錄用決策</div>
+      用人主管錄用建議：${HIRE_OPTIONS.map(o=>`${bx(d.hireDecision===o)}${o}`).join("　")}<br>
+      理由：${esc(d.decisionReason||'')}<br>
+      資歷查核：${bx(d.qualCheck)}已完成（依個資同意書）　　到職日：${esc(d.startDate||'')}<br>
+      核薪核定：${buildSalaryPrintLines(d.salaryFinal || d.salaryProposal)}</div>
+    <div class="p-sign-row">${SIGN_STAGES.map(signCell).join("")}</div>
+  `;
+  fitPrintAreaToA4();
+  setTimeout(()=>window.print(), 80);
+}
+function fitPrintAreaToA4(){
+  const el = $('printArea');
+  el.style.zoom = 1; el.style.display = 'block'; el.style.position = 'fixed'; el.style.left = '-10000px'; el.style.top = '0';
+  const pageHeightPx = 297 * (96/25.4);
+  const contentHeightPx = el.scrollHeight;
+  let scale = contentHeightPx > pageHeightPx ? (pageHeightPx / contentHeightPx) : 1;
+  if(scale < 1) scale = scale * 0.96;
+  el.style.zoom = scale;
+  el.style.display = ''; el.style.position = ''; el.style.left = ''; el.style.top = '';
+}
+
+route();
+</script>
+</body>
+</html>
